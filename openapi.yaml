@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: API предчеков Продумáн
-  version: 1.3.0
+  version: 1.4.0
   summary: API для партнёрской интеграции по созданию предчеков и получению результатов успешной фискализации.
   description: |
     API Продумáн для партнёрской интеграции по предварительному согласованию.
@@ -100,6 +100,22 @@ paths:
                         supplierInn: "7723711986"
                         supplierPhone: "79998888888"
                         supplierAutocomplete: true
+              withCallbackAuth:
+                summary: Webhook с Bearer-аутентификацией
+                value:
+                  location: agreed-location
+                  content:
+                    orderId: "12345"
+                    callbackUrl: https://partner.example.com/webhook
+                    callbackAuth:
+                      authType: BEARER_TOKEN
+                      secret: example-token
+                    totalAmount: 100
+                    positions:
+                      - name: Тестовая услуга
+                        paymentSubject: service
+                        quantity: 1
+                        price: 100
       responses:
         '200':
           description: |
@@ -131,6 +147,11 @@ paths:
                   value:
                     success: false
                     message: Нулевая сумма чека
+                invalidCallbackAuth:
+                  summary: Неверные настройки аутентификации webhook
+                  value:
+                    success: false
+                    message: Для callbackAuth с Bearer или Basic требуется корректный callbackUrl с HTTPS
 
 webhooks:
   paymentResult:
@@ -170,7 +191,7 @@ webhooks:
         ## Безопасность
 
         - Специальная подпись webhook не используется.
-        - В качестве практики защиты рекомендуется использовать уникальный `callbackUrl`, например: `https://partner.example.com/incoming-receipt-box?security=hU6HITQo2CnZ0zwyHhfptwPq`.
+        - Для аутентификации webhook передайте `callbackAuth` при создании предчека.
         - Список IP-адресов отправителя может быть предоставлен по запросу.
         - Webhook следует обрабатывать идемпотентно.
         - Для одного `id` предчека может существовать несколько webhook с разными `receiptId`, если по одному предчеку сформировано несколько чеков.
@@ -182,7 +203,8 @@ webhooks:
 
         Продумáн отправляет webhook с заголовками:
         - `Content-Type: application/json; charset=utf-8`
-        - `User-Agent: Produman (https://dev.produman.org)`
+        - `User-Agent: Produman Kassa (https://kassa.produman.org)`
+        - `Authorization` — при Bearer- или Basic-аутентификации.
       requestBody:
         required: true
         content:
@@ -247,6 +269,8 @@ components:
           description: |
             Внешний URL для получения webhook с результатами успешной фискализации.
             Если не передан, webhook не отправляется.
+        callbackAuth:
+          $ref: '#/components/schemas/CallbackAuth'
         totalAmount:
           type: number
           minimum: 0
@@ -284,6 +308,42 @@ components:
           description: Список позиций предчека.
           items:
             $ref: '#/components/schemas/PreReceiptPosition'
+
+    CallbackAuth:
+      type: object
+      additionalProperties: false
+      required:
+        - authType
+      description: |
+        Необязательные настройки аутентификации webhook.
+        Если не переданы, заголовок `Authorization` не добавляется.
+        При передаче объекта требуется непустой `callbackUrl`; для Bearer и Basic — с HTTPS.
+      properties:
+        authType:
+          type: string
+          enum:
+            - 'NO'
+            - BEARER_TOKEN
+            - BASIC_AUTH
+          description: |
+            - `NO` — без заголовка `Authorization`.
+            - `BEARER_TOKEN` — заголовок `Authorization: Bearer <secret>`.
+            - `BASIC_AUTH` — заголовок `Authorization: Basic <secret>`.
+        secret:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+          description: |
+            Для Bearer и Basic — обязательная непустая строка без управляющих символов, включая CR, LF и NUL. Пробелы сохраняются.
+            Для Basic передайте готовый Base64 от `логин:пароль`, например `dXNlcjpwYXNz` для `user:pass`.
+            Для `NO` не передавайте секрет либо укажите `null` или пустую строку.
+      examples:
+        - authType: BEARER_TOKEN
+          secret: example-token
+        - authType: BASIC_AUTH
+          secret: dXNlcjpwYXNz
+        - authType: 'NO'
 
     PreReceiptPosition:
       type: object
